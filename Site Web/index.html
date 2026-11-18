@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Asap:wght@400;700&family=Plus+Jakarta+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="images/logo.svg">
+    <title>SAÉ 15 : Accueil</title>
+</head>
+<body>
+    <header class="entete">
+        <input type="checkbox" id="toggle">
+        <label for="toggle" class="burger">☰</label>
+        <a href="index.html" class="logo">SAÉ 15 : Traiter des données</a>
+
+        <nav class="menu">
+            <a href="index.html" class="button">Accueil</a>
+            <a href="carte.html" class="button">Carte Interactive</a>
+            <a href="contact.html" class="button">Contactez-nous</a>
+        </nav>
+
+        <div class="langues">
+            <a href="index.html"><img src="https://flagcdn.com/fr.svg" alt="Français"></a>
+            <a href="index_en.html"><img src="https://flagcdn.com/gb.svg" alt="Anglais"></a>
+        </div>
+    </header>
+
+    <main>
+        <h1 class="centre">Présentation du projet</h1>
+        <h2 class="centre">Par Jayms Bouyer, Maxence Dufourt, Florian Adrast et Thomas Choulant</h2>
+
+        <section class="cadre">
+            <img src="images/map.png" alt="Photo d'accueil Unsplash">
+            <h2 class="centre">Explication</h2>
+            <h3>Projet SAE 15 : données ouvertes de l’ANFR.</h3>
+            <p>L’Agence nationale des fréquences (ANFR) coordonne l’implantation des stations radioélectriques en France et veille au respect des limites d’exposition du public aux champs électromagnétiques. Depuis 2015, elle publie en open data les données des stations de plus de 5 W (hors Défense, aviation civile et Intérieur).</p>
+            <p>Notre objectif : à partir de ce jeu de données réel, caractériser les installations en France : répartition géographique, technologies et leur évolution, exploitants. Les résultats sont présentés sur une carte interactive.</p>
+            <p>Outils : Python pour le traitement et la visualisation, Git/GitHub pour le versionnage et la programmation, Trello pour l’organisation.</p>
+            <p>Livrables : dépôt GitHub (code commenté + README), bilan de l’étude, carte interactive.</p>
+        </section>
+    </main>
+
+    <footer class="pied-de-page">
+        <nav>
+            <ul>
+                <li><a href="index.html">Accueil</a></li>
+                <li><a href="carte.html">Carte Interactive</a></li>
+                <li><a href="contact.html">Contact</a></li>
+                <li><a href="https://iutrouen.univ-rouen.fr/" target="_blank" rel="noopener">IUT de Rouen – R&amp;T</a></li>
+            </ul>
+        </nav>
+        <p class="copyright">© 2026 Jayms Bouyer, Maxence Dufourt, Florian Adrast et Thomas Choulant.</p>
+    </footer>
+</body>
+</html>
