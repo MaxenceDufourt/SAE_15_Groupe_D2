@@ -51,7 +51,7 @@ L'ANFR coordonne l'implantation des stations radioélectriques en France et veil
 ## Prérequis
 
 - [Python](https://www.python.org/) 3.8 ou supérieur
-- Les bibliothèques Python `pandas` et `folium`
+- Les bibliothèques Python `pandas`,`folium` et `Matplotlib`
 - Une connexion Internet à l'ouverture du site : fond de carte satellite Esri, polices Google Fonts et drapeaux (flagcdn)
 
 ## Installation
@@ -62,7 +62,9 @@ git clone https://github.com/<votre-organisation>/<nom-du-depot>.git
 cd <nom-du-depot>
 
 # Installer les dépendances
-pip install pandas folium
+pip install pandas
+pip install folium
+pip install matplotlib
 ## Données à fournir
 
 Les fichiers de l'ANFR ne sont pas inclus dans le dépôt. Il faut les télécharger depuis le portail open data de l'ANFR et les placer dans deux dossiers à la racine du projet :
@@ -85,9 +87,9 @@ Les fichiers sont au format texte, séparés par des points-virgules (`;`) et en
 
 ```bash
 python main.py
-```
+Cela va ouvrir le graphique. Ensuite,
+il faudra taper site/index.html dans le terminal pour ouvrir le site avec les différentes cartes interactives.
 
-Le programme affiche des statistiques de contrôle (nombre d'installations et de supports, nombre d'opérateurs inconnus, supports par territoire), puis crée le dossier `site/`. Il suffit ensuite d'ouvrir `site/index.html` dans un navigateur.
 
 ## Structure du projet
 
