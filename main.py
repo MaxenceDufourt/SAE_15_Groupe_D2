@@ -1,20 +1,23 @@
 import os
 import shutil
-
 import folium
 import pandas as pd
+import matplotlib.pyplot as plt
 
-SITE = "site"      # folder created by the program
-ASSETS = "assets"  # fixed files copied as they are: style.css and images/
+# ---------------------------------------------------------------------------
+# SETTINGS
+# ---------------------------------------------------------------------------
 
-# Satellite basemap (Esri). Default OpenStreetMap tiles are not used:
-# they are blocked when the HTML file is opened by double-click.
+SITE = "site"             # output folder created by the program
+RESOURCES = "ressources"  # files copied as they are (style.css, images/)
+
+# Satellite background of the maps (the default OpenStreetMap tiles are blocked when the HTML is opened by double-click)
 BASEMAP = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 
-# Only the installations put into service in this year are kept (the others are not even loaded)
-YEAR = "2025"
+YEAR = "2025"             # we only keep the installations put into service this year
+CHART_COLOR = "#1F3A68"   # color of the bars
 
-# The 6 territories. The key is the start of the commune INSEE code.
+# The 6 territories. The key is the start of the INSEE code of the commune.
 TERRITORIES = {
     "974": {"file": "reunion", "fr": "La Réunion", "en": "Réunion Island"},
     "971": {"file": "guadeloupe", "fr": "Guadeloupe", "en": "Guadeloupe"},
@@ -26,76 +29,77 @@ TERRITORIES = {
 
 
 # ---------------------------------------------------------------------------
-# PART 1 - DATA: read the ANFR files and prepare one table with everything
+# PART 1 - DATA: read the ANFR files and build one table
 # ---------------------------------------------------------------------------
 
 def read_table(folder, name, columns):
-    """Read one ANFR text file, keeping only the columns we need.
-    STA_NM_ANFR and COM_CD_INSEE are read as text: some values (e.g. 0422750464)
-    are not plain numbers, and all tables must use the same type to be joined."""
+    """Read one ANFR file, keeping only the columns we need.
+    The ID columns are read as text so that all tables can be joined."""
     return pd.read_csv(f"{folder}/{name}.txt", sep=";", encoding="utf-8",
                        usecols=columns, dtype={"STA_NM_ANFR": str, "COM_CD_INSEE": str})
 
 
 def to_decimal(degrees, minutes, seconds, direction):
-    """Degrees / minutes / seconds -> decimal degrees (South and West are negative)."""
+    """Convert degrees/minutes/seconds to decimal degrees (South and West are negative)."""
     value = degrees + minutes / 60 + seconds / 3600
     return value.where(~direction.isin(["S", "W"]), -value)
 
 
 def load_stations():
-    """Installations put into service in YEAR. Service dates look like 04/09/2009, so the year is the last 4 characters."""
-    station = read_table("data", "sup_station", ["STA_NM_ANFR", "ADM_ID", "DTE_EN_SERVICE"])
-    return station[station["DTE_EN_SERVICE"].str[-4:] == YEAR]
+    """Keep the installations put into service in YEAR (dates look like 04/09/2009)."""
+    stations = read_table("data", "sup_station", ["STA_NM_ANFR", "ADM_ID", "DTE_EN_SERVICE"])
+    return stations[stations["DTE_EN_SERVICE"].str[-4:] == YEAR]
 
 
-def load_supports(station):
-    """Supports of our 6 territories linked to the given installations, with decimal coordinates.
-    The table has one row per support and per installation."""
-    support = read_table("data", "sup_support",
-                         ["SUP_ID", "STA_NM_ANFR", "NAT_ID", "SUP_NM_HAUT", "COM_CD_INSEE",
-                          "COR_NB_DG_LAT", "COR_NB_MN_LAT", "COR_NB_SC_LAT", "COR_CD_NS_LAT",
-                          "COR_NB_DG_LON", "COR_NB_MN_LON", "COR_NB_SC_LON", "COR_CD_EW_LON"])
-    support["lat"] = to_decimal(support["COR_NB_DG_LAT"], support["COR_NB_MN_LAT"],
-                                support["COR_NB_SC_LAT"], support["COR_CD_NS_LAT"])
-    support["lon"] = to_decimal(support["COR_NB_DG_LON"], support["COR_NB_MN_LON"],
-                                support["COR_NB_SC_LON"], support["COR_CD_EW_LON"])
+def load_supports(stations):
+    """Keep the supports of our 6 territories that carry these installations, and add decimal coordinates."""
+    supports = read_table("data", "sup_support",
+                          ["SUP_ID", "STA_NM_ANFR", "NAT_ID", "SUP_NM_HAUT", "COM_CD_INSEE",
+                           "COR_NB_DG_LAT", "COR_NB_MN_LAT", "COR_NB_SC_LAT", "COR_CD_NS_LAT",
+                           "COR_NB_DG_LON", "COR_NB_MN_LON", "COR_NB_SC_LON", "COR_CD_EW_LON"])
+    supports["lat"] = to_decimal(supports["COR_NB_DG_LAT"], supports["COR_NB_MN_LAT"],
+                                 supports["COR_NB_SC_LAT"], supports["COR_CD_NS_LAT"])
+    supports["lon"] = to_decimal(supports["COR_NB_DG_LON"], supports["COR_NB_MN_LON"],
+                                 supports["COR_NB_SC_LON"], supports["COR_CD_EW_LON"])
 
-    support["code"] = support["COM_CD_INSEE"].str[:3]      # territory = first 3 characters of the INSEE code
-    support = support[support["code"].isin(list(TERRITORIES))]
-    support = support[support["STA_NM_ANFR"].isin(station["STA_NM_ANFR"])]   # only the installations of YEAR
-    return support.dropna(subset=["lat", "lon"])
+    supports["code"] = supports["COM_CD_INSEE"].str[:3]                          # territory code
+    supports = supports[supports["code"].isin(list(TERRITORIES))]                # our 6 territories only
+    supports = supports[supports["STA_NM_ANFR"].isin(stations["STA_NM_ANFR"])]   # installations of YEAR only
+    return supports.dropna(subset=["lat", "lon"])                                # no coordinates = removed
 
 
-def add_operator_and_nature(support, station):
+def add_operator_and_nature(supports, stations):
     """Add the operator, the service date and the nature of each support."""
-    exploitant = read_table("ref", "sup_exploitant", ["ADM_ID", "ADM_LB_NOM"])
-    nature = read_table("ref", "sup_nature", ["NAT_ID", "NAT_LB_NOM"])
-    return (support
-            .merge(station, on="STA_NM_ANFR", how="left")
-            .merge(exploitant, on="ADM_ID", how="left")
-            .merge(nature, on="NAT_ID", how="left"))
+    operators = read_table("ref", "sup_exploitant", ["ADM_ID", "ADM_LB_NOM"])
+    natures = read_table("ref", "sup_nature", ["NAT_ID", "NAT_LB_NOM"])
+    return (supports
+            .merge(stations, on="STA_NM_ANFR", how="left")
+            .merge(operators, on="ADM_ID", how="left")
+            .merge(natures, on="NAT_ID", how="left"))
 
 
-def make_antenna_table(support):
-    """One row per installation and support, with the antenna types as one text (e.g. "Panneau, Tube")."""
-    antenne = read_table("data", "sup_antenne", ["STA_NM_ANFR", "SUP_ID", "TAE_ID"])
-    antenne = antenne[antenne["STA_NM_ANFR"].isin(support["STA_NM_ANFR"])]   # our territories only
-    antenne = antenne.merge(read_table("ref", "sup_type_antenne", ["TAE_ID", "TAE_LB"]), on="TAE_ID", how="left")
-    antenne = antenne.dropna(subset=["TAE_LB"]).drop_duplicates(["STA_NM_ANFR", "SUP_ID", "TAE_LB"]).sort_values("TAE_LB")
-    return antenne.groupby(["STA_NM_ANFR", "SUP_ID"])["TAE_LB"].agg(", ".join).reset_index(name="antennes")
+def make_antenna_table(supports):
+    """One row per installation and support, with the antenna types in one text (e.g. "Panneau, Tube")."""
+    antennas = read_table("data", "sup_antenne", ["STA_NM_ANFR", "SUP_ID", "TAE_ID"])
+    antennas = antennas[antennas["STA_NM_ANFR"].isin(supports["STA_NM_ANFR"])]   # our installations only
+    antenna_types = read_table("ref", "sup_type_antenne", ["TAE_ID", "TAE_LB"])
+    antennas = antennas.merge(antenna_types, on="TAE_ID", how="left")
+    antennas = antennas.dropna(subset=["TAE_LB"])                                # remove unknown types
+    antennas = antennas.drop_duplicates(["STA_NM_ANFR", "SUP_ID", "TAE_LB"])     # each type only once
+    antennas = antennas.sort_values("TAE_LB")                                    # alphabetical order
+    return antennas.groupby(["STA_NM_ANFR", "SUP_ID"])["TAE_LB"].agg(", ".join).reset_index(name="antennas")
 
 
 def load_installations():
-    """Return one row per (support, installation) with all the data needed for the maps."""
-    station = load_stations()
-    support = load_supports(station)
-    installations = add_operator_and_nature(support, station)
-    installations = installations.merge(make_antenna_table(support), on=["STA_NM_ANFR", "SUP_ID"], how="left")
+    """Return one row per (support, installation) with all the data needed for the maps and the chart."""
+    stations = load_stations()
+    supports = load_supports(stations)
+    installations = add_operator_and_nature(supports, stations)
+    installations = installations.merge(make_antenna_table(supports), on=["STA_NM_ANFR", "SUP_ID"], how="left")
     installations = installations.fillna("inconnu")   # missing values are shown as "inconnu"
 
     print("Installations:", len(installations), "| Supports:", installations["SUP_ID"].nunique())
-    print("Operateur inconnu:", (installations["ADM_LB_NOM"] == "inconnu").sum())   # check: joins worked
+    print("Operateur inconnu:", (installations["ADM_LB_NOM"] == "inconnu").sum())   # check: the joins worked
     return installations
 
 
@@ -103,64 +107,85 @@ def load_installations():
 # PART 2 - MAPS: one interactive map per territory
 # ---------------------------------------------------------------------------
 
-def build_popup(sup_id, group):
-    """Text of the popup of one support: its own data, then one block per installation on it."""
-    first = group.iloc[0]
-    text = f"<b>Support {sup_id}</b><br>Nature : {first['NAT_LB_NOM']}<br>Hauteur (m) : {first['SUP_NM_HAUT']}"
+def build_popup(first, group):
+    """Popup text of one support: its own data, then one block per installation.
+    "group" = rows of this support, "first" = its first row."""
+    text = f"<b>Support {first['SUP_ID']}</b><br>Nature : {first['NAT_LB_NOM']}<br>Hauteur (m) : {first['SUP_NM_HAUT']}"
     for _, row in group.iterrows():
         text += (f"<hr>Opérateur : {row['ADM_LB_NOM']}"
-                 f"<br>Antennes : {row['antennes']}"
+                 f"<br>Antennes : {row['antennas']}"
                  f"<br>Mise en service : {row['DTE_EN_SERVICE']}")
     return text
 
 
-def make_one_map(data):
-    """Map of one territory, with one marker per support."""
-    carte = folium.Map(tiles=BASEMAP, attr="Tiles © Esri")
-    for sup_id, group in data.groupby("SUP_ID"):
+def make_one_map(territory_data):
+    """Build the map of one territory: one marker per support."""
+    territory_map = folium.Map(tiles=BASEMAP, attr="Tiles © Esri")
+    for _, group in territory_data.groupby("SUP_ID"):
         first = group.iloc[0]
-        folium.CircleMarker([first["lat"], first["lon"]], radius=3,
-                            popup=folium.Popup(build_popup(sup_id, group), max_width=300)).add_to(carte)
-    carte.fit_bounds([[data["lat"].min(), data["lon"].min()],
-                      [data["lat"].max(), data["lon"].max()]])
-    return carte
+        popup = folium.Popup(build_popup(first, group), max_width=300)
+        folium.CircleMarker([first["lat"], first["lon"]], radius=3, popup=popup).add_to(territory_map)
+    territory_map.fit_bounds([[territory_data["lat"].min(), territory_data["lon"].min()],
+                              [territory_data["lat"].max(), territory_data["lon"].max()]])   # zoom on all markers
+    return territory_map
 
 
 def make_maps(installations):
     """Save one map per territory in site/cartes/."""
     for code, territory in TERRITORIES.items():
-        data = installations[installations["code"] == code]
-        print(territory["file"], ":", data["SUP_ID"].nunique(), "supports")
+        territory_data = installations[installations["code"] == code]
+        print(territory["file"], ":", territory_data["SUP_ID"].nunique(), "supports")
         path = f"{SITE}/cartes/carte_{territory['file']}.html"
-        if data.empty:                                 # no support this year: a short message instead of a map
+        if territory_data.empty:   # no support this year: write a message instead of a map
             with open(path, "w", encoding="utf-8") as file:
                 file.write(f"<meta charset='UTF-8'><p>Aucun support mis en service en {YEAR} pour ce territoire.</p>")
         else:
-            make_one_map(data).save(path)
+            make_one_map(territory_data).save(path)
 
 
 # ---------------------------------------------------------------------------
-# PART 3 - WEB PAGES: the same layout for every page, only the text changes
+# PART 3 - CHART: number of supports per territory (opens in its own window)
+# ---------------------------------------------------------------------------
+
+def show_chart(installations):
+    """Show a bar chart in a separate window (not on the website). Same data as the maps."""
+    # Count the different supports of each territory (one support can have several rows)
+    counts = installations.groupby("code")["SUP_ID"].nunique()
+    counts = counts.reindex(list(TERRITORIES), fill_value=0)   # territories with 0 support are shown too
+    counts.index = [TERRITORIES[code]["fr"] for code in counts.index]
+    counts = counts.sort_values(ascending=False)
+
+    ax = counts.plot(kind="bar", color=CHART_COLOR, figsize=(8, 4))
+    ax.bar_label(ax.containers[0])                              # number on top of each bar
+    plt.title(f"Supports mis en service en {YEAR}")
+    plt.ylabel("Nombre de supports")
+    plt.xticks(rotation=25, ha="right")
+    plt.tight_layout()
+    plt.show()                                                  # waits until the window is closed
+
+
+# ---------------------------------------------------------------------------
+# PART 4 - WEB SITE: same layout for every page, only the texts change
 # ---------------------------------------------------------------------------
 
 def team_names(t):
-    """'A, B, C and D' in the language of the page."""
+    """Team names as "A, B, C and D" (in the language of the page)."""
     names = [person["name"] for person in PEOPLE]
     return f"{', '.join(names[:-1])} {t['and']} {names[-1]}"
 
 
 def header(t, page):
     """Top of the page: logo, menu and the two language flags."""
-    sfx = t["suffix"]
+    suffix = t["suffix"]
     return f"""    <header class="entete">
         <input type="checkbox" id="toggle">
         <label for="toggle" class="burger">☰</label>
-        <a href="index{sfx}.html" class="logo">{t['logo']}</a>
+        <a href="index{suffix}.html" class="logo">{t['logo']}</a>
 
         <nav class="menu">
-            <a href="index{sfx}.html" class="button">{t['home']}</a>
-            <a href="carte{sfx}.html" class="button">{t['map']}</a>
-            <a href="contact{sfx}.html" class="button">{t['contact_menu']}</a>
+            <a href="index{suffix}.html" class="button">{t['home']}</a>
+            <a href="carte{suffix}.html" class="button">{t['map']}</a>
+            <a href="contact{suffix}.html" class="button">{t['contact_menu']}</a>
         </nav>
 
         <div class="langues">
@@ -172,13 +197,13 @@ def header(t, page):
 
 def footer(t):
     """Bottom of the page: links and copyright."""
-    sfx = t["suffix"]
+    suffix = t["suffix"]
     return f"""    <footer class="pied-de-page">
         <nav>
             <ul>
-                <li><a href="index{sfx}.html">{t['home']}</a></li>
-                <li><a href="carte{sfx}.html">{t['map']}</a></li>
-                <li><a href="contact{sfx}.html">{t['contact_footer']}</a></li>
+                <li><a href="index{suffix}.html">{t['home']}</a></li>
+                <li><a href="carte{suffix}.html">{t['map']}</a></li>
+                <li><a href="contact{suffix}.html">{t['contact_footer']}</a></li>
                 <li><a href="https://iutrouen.univ-rouen.fr/" target="_blank" rel="noopener">{t['iut']}</a></li>
             </ul>
         </nav>
@@ -187,7 +212,8 @@ def footer(t):
 
 
 def index_body(t):
-    paragraphs = "\n".join(f"            <p>{p}</p>" for p in t["index_paragraphs"])
+    """Content of the home page."""
+    paragraphs = "\n".join(f"            <p>{paragraph}</p>" for paragraph in t["index_paragraphs"])
     return f"""    <main>
         <h1 class="centre">{t['index_title']}</h1>
         <h2 class="centre">{t['by']} {team_names(t)}</h2>
@@ -202,10 +228,11 @@ def index_body(t):
 
 
 def map_body(t):
+    """Content of the map page: one button per territory and a frame that shows the chosen map."""
     buttons = "\n".join(
         f'        <a href="cartes/carte_{territory["file"]}.html" target="carte-affichee" class="button">{territory[t["lang"]]}</a>'
         for territory in TERRITORIES.values())
-    first_file = list(TERRITORIES.values())[0]["file"]   # the first territory is shown when the page opens
+    first_file = list(TERRITORIES.values())[0]["file"]   # first territory = shown when the page opens
     return f"""    <h1 class="centre">{t['map_title']}</h1>
     <p class="centre intro-carte">{t['map_intro']}</p>
 
@@ -217,14 +244,15 @@ def map_body(t):
 
 
 def contact_body(t):
+    """Content of the contact page: one block per team member."""
     sections = ""
-    for p in PEOPLE:
+    for person in PEOPLE:
         sections += f"""        <section class="contact-personne">
-            <h2>{p['name']}</h2>
+            <h2>{person['name']}</h2>
             <ul>
-                <li>{t['mail_label']} : <a href="mailto:{p['mail']}">{p['mail']}</a></li>
-                <li>LinkedIn : <a href="{p['linkedin_url']}" target="_blank" rel="noopener">{p['linkedin_text']}</a></li>
-                <li>GitHub : <a href="{p['github_url']}" target="_blank" rel="noopener">{p['github_text']}</a></li>
+                <li>{t['mail_label']} : <a href="mailto:{person['mail']}">{person['mail']}</a></li>
+                <li>LinkedIn : <a href="{person['linkedin_url']}" target="_blank" rel="noopener">{person['linkedin_text']}</a></li>
+                <li>GitHub : <a href="{person['github_url']}" target="_blank" rel="noopener">{person['github_text']}</a></li>
             </ul>
         </section>
 """
@@ -238,7 +266,7 @@ BODIES = {"index": index_body, "carte": map_body, "contact": contact_body}
 
 
 def write_pages():
-    """Write the 6 pages: index, carte and contact, in French and English."""
+    """Write the 6 pages (index, carte, contact) in French and English."""
     for t in TEXTS.values():
         for page, make_body in BODIES.items():
             html = f"""<!DOCTYPE html>
@@ -266,25 +294,7 @@ def write_pages():
                 file.write(html)
 
 
-# ---------------------------------------------------------------------------
-# MAIN: the 4 steps of the program
-# ---------------------------------------------------------------------------
-
-def main():
-    if not os.path.isdir("data") or not os.path.isdir("ref"):
-        raise SystemExit("Folders 'data/' and 'ref/' not found: put the ANFR files there (see README.md).")
-    os.makedirs(f"{SITE}/cartes", exist_ok=True)
-    shutil.copytree(ASSETS, SITE, dirs_exist_ok=True)   # 1. style.css and images/
-    make_maps(load_installations())                     # 2. read the data, 3. make the maps
-    write_pages()                                       # 4. write the web pages
-    print(f"Site ready: open {SITE}/index.html")
-
-
-# ---------------------------------------------------------------------------
-# TEXTS OF THE SITE (placed here so that the code above comes first)
-# ---------------------------------------------------------------------------
-
-# Team members (contact page, home page and footer)
+# Team members (used in the contact page, the home page and the footer)
 PEOPLE = [
     {"name": "Jayms Bouyer", "mail": "Jayms.bouyer@gmail.com",
      "linkedin_url": "https://www.linkedin.com/in/jayms-bouyer-874059438/", "linkedin_text": "Jayms Bouyer",
@@ -306,7 +316,7 @@ PEOPLE = [
 TEXTS = {
     "fr": {
         "lang": "fr",
-        "suffix": "",                       # file names: index.html, carte.html, contact.html
+        "suffix": "",                       # files: index.html, carte.html, contact.html
         "logo": "SAÉ 15 : Traiter des données",
         "home": "Accueil", "map": "Carte Interactive",
         "contact_menu": "Contactez-nous", "contact_footer": "Contact",
@@ -335,7 +345,7 @@ TEXTS = {
     },
     "en": {
         "lang": "en",
-        "suffix": "_en",                    # file names: index_en.html, carte_en.html, contact_en.html
+        "suffix": "_en",                    # files: index_en.html, carte_en.html, contact_en.html
         "logo": "SAÉ 15: Processing data",
         "home": "Home", "map": "Interactive Map",
         "contact_menu": "Contact", "contact_footer": "Contact",
@@ -363,6 +373,22 @@ TEXTS = {
         "mail_label": "Mail",
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# MAIN: the steps of the program
+# ---------------------------------------------------------------------------
+
+def main():
+    if not os.path.isdir("data") or not os.path.isdir("ref"):
+        raise SystemExit("Folders 'data/' and 'ref/' not found: put the ANFR files there (see README.md).")
+    os.makedirs(f"{SITE}/cartes", exist_ok=True)
+    shutil.copytree(RESOURCES, SITE, dirs_exist_ok=True)   # 1. copy style.css and images/
+    installations = load_installations()                   # 2. read the data (only once)
+    make_maps(installations)                               # 3. make the maps
+    write_pages()                                          # 4. write the web pages
+    print(f"Site ready: open {SITE}/index.html")
+    show_chart(installations)                              # 5. chart, last because the window blocks the program
 
 
 main()
