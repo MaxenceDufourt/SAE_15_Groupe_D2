@@ -87,8 +87,6 @@ Les fichiers sont au format texte, séparés par des points-virgules (`;`) et en
 python main.py
 ```
 
-> Remplacez `main.py` par le nom réel du script si besoin.
-
 Le programme affiche des statistiques de contrôle (nombre d'installations et de supports, nombre d'opérateurs inconnus, supports par territoire), puis crée le dossier `site/`. Il suffit ensuite d'ouvrir `site/index.html` dans un navigateur.
 
 ## Structure du projet
